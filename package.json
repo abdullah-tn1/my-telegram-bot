@@ -1,0 +1,29 @@
+{
+  "name": "my-telegram-bot",
+  "version": "3.0.0",
+  "description": "نظام إدارة عقود المقاولات — Telegram Bot",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "dev": "node bot.js",
+    "pm2": "pm2 start ecosystem.config.js",
+    "pm2:stop": "pm2 stop telegram-bot",
+    "pm2:logs": "pm2 logs telegram-bot",
+    "pm2:status": "pm2 status"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "contracts",
+    "kuwait"
+  ],
+  "author": "شركة صروح العالمية",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "dotenv": "^16.0.0",
+    "googleapis": "^173.0.0",
+    "node-telegram-bot-api": "^0.67.0",
+    "puppeteer": "^25.1.0"
+  }
+}

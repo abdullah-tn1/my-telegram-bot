@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>نظام إدارة العقود</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #f5f5f0;
+    --surface: #ffffff;
+    --surface2: #f0efea;
+    --border: rgba(0,0,0,0.09);
+    --border2: rgba(0,0,0,0.15);
+    --text: #1a1a18;
+    --text2: #6b6b67;
+    --text3: #9a9a96;
+    --blue: #378ADD;
+    --green: #1D9E75;
+    --red: #D85A30;
+    --amber: #BA7517;
+    --blue-bg: #E6F1FB;
+    --blue-text: #185FA5;
+    --green-bg: #E1F5EE;
+    --green-text: #0F6E56;
+    --red-bg: #FAECE7;
+    --red-text: #993C1D;
+    --amber-bg: #FAEEDA;
+    --amber-text: #854F0B;
+    --radius: 10px;
+    --radius-lg: 14px;
+  }
+  body {
+    font-family: 'IBM Plex Sans Arabic', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 24px 20px;
+    direction: rtl;
+  }
+  .container { max-width: 900px; margin: 0 auto; }
+
+  /* Header */
+  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; flex-wrap: wrap; gap: 12px; }
+  .header-left h1 { font-size: 22px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 10px; }
+  .header-left p { font-size: 13px; color: var(--text2); margin-top: 4px; }
+  .live-badge { background: var(--green-bg); color: var(--green-text); font-size: 12px; padding: 5px 14px; border-radius: 99px; font-weight: 500; display: flex; align-items: center; gap: 6px; }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: blink 1.5s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  /* Metrics */
+  .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+  @media(max-width:600px){ .metrics { grid-template-columns: 1fr 1fr; } }
+  .metric { background: var(--surface); border-radius: var(--radius); padding: 16px; border: 0.5px solid var(--border); }
+  .metric-label { font-size: 12px; color: var(--text2); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+  .metric-value { font-size: 24px; font-weight: 600; color: var(--text); }
+  .metric-sub { font-size: 11px; color: var(--text3); margin-top: 4px; }
+
+  /* Section */
+  .section-label { font-size: 13px; font-weight: 500; color: var(--text2); margin-bottom: 12px; display: flex; align-items: center; gap: 6px; }
+
+  /* Contracts */
+  .contracts { display: flex; flex-direction: column; gap: 10px; margin-bottom: 24px; }
+  .contract-card { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 16px 20px; cursor: pointer; transition: border-color .15s, box-shadow .15s; }
+  .contract-card:hover { border-color: var(--border2); }
+  .contract-card.open { border-color: var(--blue); }
+  .card-top { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 12px; }
+  .card-id { font-size: 14px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px; }
+  .card-client { font-size: 12px; color: var(--text2); margin-top: 3px; }
+  .badge { font-size: 11px; padding: 4px 12px; border-radius: 99px; font-weight: 500; white-space: nowrap; }
+  .b-active { background: var(--blue-bg); color: var(--blue-text); }
+  .b-done { background: var(--green-bg); color: var(--green-text); }
+  .b-late { background: var(--amber-bg); color: var(--amber-text); }
+
+  .progress-row { display: flex; align-items: center; gap: 10px; }
+  .bar-wrap { flex: 1; height: 6px; background: var(--surface2); border-radius: 99px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 99px; transition: width .5s ease; }
+  .bar-pct { font-size: 12px; font-weight: 500; color: var(--text2); min-width: 38px; text-align: left; }
+  .amounts { display: flex; justify-content: space-between; font-size: 11px; color: var(--text3); margin-top: 6px; }
+
+  /* Detail */
+  .detail { background: var(--surface2); border-radius: var(--radius); padding: 16px; margin-top: 12px; display: none; }
+  .detail.open { display: block; }
+  .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; margin-bottom: 14px; }
+  @media(max-width:480px){ .detail-grid { grid-template-columns: 1fr; } }
+  .detail-item label { font-size: 11px; color: var(--text3); display: block; margin-bottom: 2px; }
+  .detail-item span { font-size: 13px; color: var(--text); font-weight: 500; }
+  .pay-title { font-size: 12px; font-weight: 500; color: var(--text2); border-top: 0.5px solid var(--border); padding-top: 12px; margin-bottom: 8px; }
+  .pay-row { display: flex; align-items: center; justify-content: space-between; padding: 8px 0; border-bottom: 0.5px solid var(--border); }
+  .pay-row:last-child { border-bottom: none; }
+  .pay-info { font-size: 12px; color: var(--text2); display: flex; align-items: center; gap: 6px; }
+  .pay-date { font-size: 11px; color: var(--text3); margin-top: 2px; }
+  .pay-amount { font-size: 13px; font-weight: 600; color: var(--text); }
+
+  /* Chart */
+  .chart-card { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 20px; margin-bottom: 24px; }
+  .chart-wrap { position: relative; width: 100%; height: 220px; margin-top: 14px; }
+  .legend { display: flex; gap: 16px; font-size: 12px; color: var(--text2); }
+  .legend span { display: flex; align-items: center; gap: 5px; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 2px; }
+
+  /* Loading */
+  .loading { text-align: center; padding: 60px 20px; color: var(--text2); font-size: 14px; }
+  .spinner { width: 28px; height: 28px; border: 2px solid var(--border); border-top-color: var(--blue); border-radius: 50%; animation: spin .7s linear infinite; margin: 0 auto 12px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .error-box { background: var(--red-bg); color: var(--red-text); border-radius: var(--radius); padding: 14px 18px; font-size: 13px; margin-bottom: 16px; display: none; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <div class="header-left">
+      <h1><i class="ti ti-building-community" style="font-size:22px"></i> نظام إدارة العقود</h1>
+      <p>لوحة متابعة المدفوعات والعقود</p>
+    </div>
+    <div class="live-badge"><div class="live-dot"></div> متصل بـ Google Sheets</div>
+  </div>
+
+  <div class="error-box" id="errBox"></div>
+  <div class="loading" id="loadingEl"><div class="spinner"></div>جاري تحميل البيانات...</div>
+
+  <div id="mainContent" style="display:none">
+    <div class="metrics" id="metricsRow"></div>
+    <div class="section-label"><i class="ti ti-list-details"></i> العقود</div>
+    <div class="contracts" id="contractsList"></div>
+    <div class="chart-card">
+      <div class="section-label" style="margin-bottom:0"><i class="ti ti-chart-bar"></i> نسبة التحصيل لكل عقد</div>
+      <div class="legend" style="margin-top:8px">
+        <span><span class="legend-dot" style="background:#378ADD"></span> المحصّل</span>
+        <span><span class="legend-dot" style="background:#e0e0d8"></span> المتبقي</span>
+      </div>
+      <div class="chart-wrap"><canvas id="myChart" role="img" aria-label="مخطط نسبة التحصيل">بيانات العقود</canvas></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     ضع هنا معرّف ملف Google Sheets الخاص بك
+     وتأكد أن الملف مشارك للعموم (Viewer)
+══════════════════════════════════════════════════ -->
+<script>
+// ⚠️ انقل هذه القيم لملف .env في الخادم ولا تنشرها في الكود
+const SPREADSHEET_ID = "1nhAX5XizxPfrV4ZPVTP_La0EbA2M4mD0WOFw2ngAjog";
+// احصل على API Key من: https://console.cloud.google.com/apis/credentials
+// وتأكد أن ملف Sheets مشارك للعموم (Viewer) أو مقيّد بنطاق صفحتك
+const API_KEY = "AIzaSyDtbu9R7bbMMOJyDTPQ0wGwP-CPV_37BBM";
+</script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script>
+// ── أدوات مساعدة ─────────────────────────────────────────────
+function fmt(n) {
+  return Number(n).toLocaleString('ar-KW', { minimumFractionDigits: 3, maximumFractionDigits: 3 }) + ' د.ك';
+}
+function pct(paid, total) { return total > 0 ? Math.round(paid / total * 100) : 0; }
+function barColor(p) { return p >= 100 ? '#1D9E75' : p >= 50 ? '#378ADD' : '#D85A30'; }
+function statusLabel(s) { return s === 'done' ? 'مكتمل' : s === 'late' ? 'متأخر' : 'نشط'; }
+function statusClass(s) { return s === 'done' ? 'b-done' : s === 'late' ? 'b-late' : 'b-active'; }
+function methodIcon(m) {
+  return m === 'تحويل بنكي' ? 'ti-arrows-exchange' : m === 'شيك' ? 'ti-file-invoice' : 'ti-coins';
+}
+
+// ── قراءة بيانات Sheet ───────────────────────────────────────
+async function fetchSheet(sheetName, range) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${encodeURIComponent(sheetName + '!' + range)}?key=${API_KEY}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`خطأ في قراءة ${sheetName}: ${res.status}`);
+  const data = await res.json();
+  return data.values || [];
+}
+
+async function getSheetNames() {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}?key=${API_KEY}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('تعذّر الاتصال بـ Google Sheets. تحقق من API Key والصلاحيات.');
+  const data = await res.json();
+  return data.sheets.map(s => s.properties.title).filter(t => t.startsWith('عقد-'));
+}
+
+async function loadContract(sheetName) {
+  // G100 يشمل عمود المتبقي (العمود السابع) بدلاً من F100
+  const rows = await fetchSheet(sheetName, 'A1:G100');
+  if (!rows.length) return null;
+  const contractNo   = rows[1]?.[1] || sheetName.replace('عقد-', '');
+  const clientName   = rows[2]?.[1] || '';
+  const clientPhone  = rows[3]?.[1] || '';
+  const address      = rows[4]?.[1] || '';
+  const civilId      = rows[5]?.[1] || '';
+  const contractType = rows[6]?.[1] || "";
+  const contractVal  = parseFloat(rows[7]?.[1]) || 0;
+  const regDate      = rows[8]?.[1] || "";
+  const payments = [];
+  // i=10 يتطابق مع bot.js (الصف 11 في الشيت = index 10)
+  for (let i = 10; i < rows.length; i++) {
+    if (rows[i] && rows[i][0] && !isNaN(parseInt(rows[i][0]))) {
+      // كشف الشكل: قديم (بدون paymentType) أم جديد (مع paymentType)
+      const isNewFormat = isNaN(parseFloat(rows[i][3]));
+      payments.push({
+        no: rows[i][0],
+        date: rows[i][1],
+        method: rows[i][2],
+        paymentType: isNewFormat ? rows[i][3] || '' : '',
+        amount: parseFloat(isNewFormat ? rows[i][4] : rows[i][3]) || 0
+      });
+    }
+  }
+  const totalPaid = payments.reduce((s, p) => s + p.amount, 0);
+  const remaining = contractVal - totalPaid;
+  // تحديد الحالة
+  let status = 'active';
+  if (remaining <= 0) status = 'done';
+  else if (payments.length === 0) status = 'late';
+  return { id: contractNo, client: clientName, phone: clientPhone, address, civilId, contractType, regDate, value: contractVal, payments, totalPaid, remaining, status };
+}
+
+// ── رندر ─────────────────────────────────────────────────────
+function renderMetrics(contracts) {
+  const total = contracts.reduce((s, c) => s + c.value, 0);
+  const paid  = contracts.reduce((s, c) => s + c.totalPaid, 0);
+  const active = contracts.filter(c => c.status === 'active').length;
+  const done   = contracts.filter(c => c.status === 'done').length;
+  document.getElementById('metricsRow').innerHTML = `
+    <div class="metric"><div class="metric-label"><i class="ti ti-files"></i> العقود</div><div class="metric-value">${contracts.length}</div><div class="metric-sub">${active} نشط · ${done} مكتمل</div></div>
+    <div class="metric"><div class="metric-label"><i class="ti ti-moneybag"></i> إجمالي القيمة</div><div class="metric-value">${(total/1000).toFixed(1)}K</div><div class="metric-sub">د.ك</div></div>
+    <div class="metric"><div class="metric-label"><i class="ti ti-circle-check"></i> المحصّل</div><div class="metric-value">${(paid/1000).toFixed(1)}K</div><div class="metric-sub">${pct(paid,total)}% من الإجمالي</div></div>
+    <div class="metric"><div class="metric-label"><i class="ti ti-clock-hour-4"></i> المتبقي</div><div class="metric-value">${((total-paid)/1000).toFixed(1)}K</div><div class="metric-sub">د.ك</div></div>
+  `;
+}
+
+function renderContracts(contracts) {
+  document.getElementById('contractsList').innerHTML = contracts.map(c => {
+    const p = pct(c.totalPaid, c.value);
+    const payRows = c.payments.map(pay => `
+      <div class="pay-row">
+        <div>
+          <div class="pay-info"><i class="ti ${methodIcon(pay.method)}" style="font-size:13px"></i> ${pay.method}${pay.paymentType ? ' — ' + pay.paymentType : ''}</div>
+          <div class="pay-date">${pay.date || ''}</div>
+        </div>
+        <div class="pay-amount">${fmt(pay.amount)}</div>
+      </div>`).join('') || '<div style="font-size:12px;color:#9a9a96;padding:8px 0">لا توجد دفعات</div>';
+
+    return `
+    <div class="contract-card" id="card-${c.id}">
+      <div class="card-top" onclick="toggleDetail('${c.id}')" style="user-select:none">
+        <div>
+          <div class="card-id"><i class="ti ti-file-text" style="font-size:15px"></i> عقد رقم ${c.id}</div>
+          <div class="card-client">${c.client}</div>
+        </div>
+        <span class="badge ${statusClass(c.status)}">${statusLabel(c.status)}</span>
+      </div>
+      <div class="progress-row" onclick="toggleDetail('${c.id}')" style="cursor:pointer">
+        <div class="bar-wrap"><div class="bar-fill" style="width:${p}%;background:${barColor(p)}"></div></div>
+        <span class="bar-pct">${p}%</span>
+      </div>
+      <div class="amounts">
+        <span>المدفوع: ${fmt(c.totalPaid)}</span>
+        <span>المتبقي: ${fmt(c.remaining)}</span>
+      </div>
+      <div class="detail" id="detail-${c.id}">
+        <div class="detail-grid">
+          <div class="detail-item"><label>قيمة العقد</label><span>${fmt(c.value)}</span></div>
+          <div class="detail-item"><label>إجمالي المدفوع</label><span>${fmt(c.totalPaid)}</span></div>
+          <div class="detail-item"><label>المتبقي</label><span>${fmt(c.remaining)}</span></div>
+          <div class="detail-item"><label>عدد الدفعات</label><span>${c.payments.length}</span></div>
+          <div class="detail-item"><label>رقم الهاتف</label><span>${c.phone}</span></div>
+          <div class="detail-item"><label>نوع العقد</label><span>${c.contractType || '—'}</span></div>
+          <div class="detail-item"><label>تاريخ التسجيل</label><span>${c.regDate}</span></div>
+          <div class="detail-item"><label>الرقم المدني</label><span>${c.civilId}</span></div>
+          <div class="detail-item" style="grid-column:1/-1"><label>العنوان</label><span>${c.address}</span></div>
+        </div>
+        <div class="pay-title"><i class="ti ti-receipt" style="font-size:13px;margin-left:4px"></i> سجل الدفعات</div>
+        ${payRows}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleDetail(id) {
+  const detail = document.getElementById('detail-' + id);
+  const card   = document.getElementById('card-' + id);
+  const isOpen = detail.classList.contains('open');
+  document.querySelectorAll('.detail.open').forEach(d => d.classList.remove('open'));
+  document.querySelectorAll('.contract-card.open').forEach(d => d.classList.remove('open'));
+  if (!isOpen) { detail.classList.add('open'); card.classList.add('open'); }
+}
+
+function renderChart(contracts) {
+  new Chart(document.getElementById('myChart'), {
+    type: 'bar',
+    data: {
+      labels: contracts.map(c => 'عقد ' + c.id),
+      datasets: [
+        { label: 'المحصّل', data: contracts.map(c => c.totalPaid), backgroundColor: '#378ADD' },
+        { label: 'المتبقي', data: contracts.map(c => Math.max(0, c.remaining)), backgroundColor: '#e0e0d8' }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { stacked: true, grid: { display: false } },
+        y: { stacked: true, grid: { color: 'rgba(0,0,0,0.04)' }, ticks: { callback: v => v >= 1000 ? (v/1000)+'K' : v } }
+      }
+    }
+  });
+}
+
+// ── تشغيل ────────────────────────────────────────────────────
+async function init() {
+  try {
+    if (API_KEY === 'ضع_Google_API_Key_هنا') {
+      throw new Error('لم يتم إدخال Google API Key. راجع التعليمات في أسفل الصفحة.');
+    }
+    const sheetNames = await getSheetNames();
+    if (!sheetNames.length) throw new Error('لا توجد عقود مسجلة بعد.');
+    const contracts = (await Promise.all(sheetNames.map(loadContract))).filter(Boolean);
+    document.getElementById('loadingEl').style.display = 'none';
+    document.getElementById('mainContent').style.display = 'block';
+    renderMetrics(contracts);
+    renderContracts(contracts);
+    renderChart(contracts);
+  } catch (e) {
+    document.getElementById('loadingEl').style.display = 'none';
+    const err = document.getElementById('errBox');
+    err.textContent = '⚠️ ' + e.message;
+    err.style.display = 'block';
+    document.getElementById('mainContent').style.display = 'block';
+  }
+}
+init();
+</script>
+
+</body>
+</html>

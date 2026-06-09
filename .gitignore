@@ -1,0 +1,22 @@
+# Node
+node_modules/
+
+# Environment secrets — never commit this
+.env
+
+# Google API credentials — never commit this
+credentials.json
+
+# Bot runtime files
+bot.pid
+bot.log
+invoice-*.png
+
+# macOS
+.DS_Store
+
+# PM2 logs
+logs/
+
+# Test artifacts
+test.pdf
