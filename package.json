@@ -21,7 +21,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "dotenv": "^16.0.0",
+    "dotenv": "^17.4.2",
     "googleapis": "^173.0.0",
     "node-telegram-bot-api": "^0.67.0",
     "puppeteer": "^25.1.0"
