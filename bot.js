@@ -332,7 +332,7 @@ async function updateContractField(contractNo, field, value) {
     "civilId":       "B6",
     "contractType":  "B7",
     "contractValue": "B8",
-    "contractDate":  "B2",
+    "contractDate":  "B9",
   };
   const cell = fieldMap[field];
   if (!cell) return { error: "حقل غير معروف" };
@@ -363,7 +363,7 @@ async function updateContractField(contractNo, field, value) {
     await sheetsRetry(() =>
       sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID,
-        range: `${newSheetName}!B1`,
+        range: `${newSheetName}!B2`,
         valueInputOption: "USER_ENTERED",
         requestBody: { values: [[value]] },
       })
