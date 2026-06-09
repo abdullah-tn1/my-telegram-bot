@@ -230,14 +230,19 @@ async function getContractInfo(contractNo) {
     throw e; // خطأ آخر — أعد الرمي
   }
 
+  // قراءة البيانات بناءً على عناوين عمود A (يعمل مع الهياكل القديمة والجديدة)
+  const findVal = (label) => {
+    const row = rows.find(r => (r[0] || "").includes(label));
+    return row?.[1] || "";
+  };
   const contractNo2   = rows[1]?.[1]  || contractNo;
-  const clientName    = rows[2]?.[1]  || "";
-  const clientPhone   = rows[3]?.[1]  || "";
-  const clientAddress = rows[4]?.[1]  || "";
-  const civilId       = rows[5]?.[1]  || "";
-  const contractType  = rows[6]?.[1]  || "";
-  const contractValue = parseFloat(rows[7]?.[1]) || 0;
-  const regDate       = rows[8]?.[1]  || "";
+  const clientName    = findVal("اسم العميل");
+  const clientPhone   = findVal("رقم الهاتف");
+  const clientAddress = findVal("عنوان العميل");
+  const civilId       = findVal("الرقم المدني");
+  const contractType  = findVal("نوع العقد");
+  const contractValue = parseFloat(findVal("قيمة العقد")) || 0;
+  const regDate       = findVal("تاريخ التسجيل");
 
   let totalPaid = 0, paymentCount = 0;
   const payments = [];
@@ -358,28 +363,41 @@ async function updateContractField(contractNo, field, value) {
     return { success: true };
   }
 
-  const fieldMap = {
-    "clientName":    "B3",
-    "clientPhone":   "B4",
-    "clientAddress": "B5",
-    "civilId":       "B6",
-    "contractType":  "B7",
-    "contractValue": "B8",
-    "contractDate":  "B9",
+  // البحث عن الصف الصحيح بناءً على عنوان عمود A
+  const labelMap = {
+    "clientName":    "اسم العميل",
+    "clientPhone":   "رقم الهاتف",
+    "clientAddress": "عنوان العميل",
+    "civilId":       "الرقم المدني",
+    "contractType":  "نوع العقد",
+    "contractValue": "قيمة العقد",
+    "contractDate":  "تاريخ التسجيل",
   };
-  const cell = fieldMap[field];
-  if (!cell) return { error: "حقل غير معروف" };
+  const label = labelMap[field];
+  if (!label) return { error: "حقل غير معروف" };
+
+  // قراءة عمود A لإيجاد الصف المناسب
+  const metaRes = await sheetsRetry(() =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${sheetName}!A1:A15`,
+    })
+  );
+  const colA = (metaRes.data.values || []).map(r => r[0] || "");
+  const rowIdx = colA.findIndex(l => l.includes(label));
+  if (rowIdx === -1) return { error: `لم يتم العثور على حقل "${label}" في الشيت` };
+  const targetCell = `${sheetName}!B${rowIdx + 1}`;
 
   await sheetsRetry(() =>
     sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
-      range: `${sheetName}!${cell}`,
+      range: targetCell,
       valueInputOption: "USER_ENTERED",
       requestBody: { values: [[value]] },
     })
   );
 
-  log("INFO", "تعديل عقد", { contractNo, field, value });
+  log("INFO", "تعديل عقد", { contractNo, field, value, cell: targetCell });
   return { success: true };
 }
 
