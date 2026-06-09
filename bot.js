@@ -28,6 +28,15 @@ if (!TELEGRAM_TOKEN) throw new Error("❌ TELEGRAM_TOKEN غير موجود في 
 if (!SPREADSHEET_ID) throw new Error("❌ SPREADSHEET_ID غير موجود في .env");
 if (!YOUR_CHAT_ID)   throw new Error("❌ YOUR_CHAT_ID غير موجود في .env");
 
+// ─── Google Credentials: Railway env var → temp file ─────────
+const CREDENTIALS_PATH = process.env.GOOGLE_CREDENTIALS
+  ? (() => {
+      const tmpPath = path.join("/tmp", "credentials.json");
+      fs.writeFileSync(tmpPath, process.env.GOOGLE_CREDENTIALS, "utf8");
+      return tmpPath;
+    })()
+  : path.join(__dirname, "credentials.json"); // fallback for local dev
+
 // ─── منع تشغيل أكثر من نسخة (PID Lock) ──────────────────────
 if (fs.existsSync(PID_FILE)) {
   const oldPid = parseInt(fs.readFileSync(PID_FILE, "utf8"), 10);
@@ -53,7 +62,7 @@ function log(level, msg, data = {}) {
 
 // ─── صلاحيات Google Sheets ───────────────────────────────────
 const auth = new google.auth.GoogleAuth({
-  keyFile: "credentials.json",
+  keyFile: CREDENTIALS_PATH,
   scopes: ["https://www.googleapis.com/auth/spreadsheets"],
 });
 const sheets = google.sheets({ version: "v4", auth });
