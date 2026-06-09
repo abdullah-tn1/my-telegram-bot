@@ -325,18 +325,6 @@ async function updateContractField(contractNo, field, value) {
   const sheetName = `عقد-${contractNo}`;
   if (!(await sheetExists(sheetName))) return { error: `العقد رقم ${contractNo} غير موجود` };
 
-  const fieldMap = {
-    "clientName":    "B3",
-    "clientPhone":   "B4",
-    "clientAddress": "B5",
-    "civilId":       "B6",
-    "contractType":  "B7",
-    "contractValue": "B8",
-    "contractDate":  "B9",
-  };
-  const cell = fieldMap[field];
-  if (!cell) return { error: "حقل غير معروف" };
-
   // تعديل رقم العقد: يتطلب إعادة تسمية الورقة
   if (field === "contractNo") {
     const meta = await sheetsRetry(() =>
@@ -344,7 +332,6 @@ async function updateContractField(contractNo, field, value) {
     );
     const sheet = meta.data.sheets.find(s => s.properties.title === sheetName);
     if (!sheet) return { error: `العقد رقم ${contractNo} غير موجود` };
-    // تحقق أن رقم العقد الجديد غير مستخدم
     const newSheetName = `عقد-${value}`;
     const exists = meta.data.sheets.find(s => s.properties.title === newSheetName);
     if (exists) return { error: `رقم العقد ${value} مستخدم بالفعل` };
@@ -359,7 +346,6 @@ async function updateContractField(contractNo, field, value) {
         },
       })
     );
-    // تحديث خلية رقم العقد داخل الورقة (A1 أو B1)
     await sheetsRetry(() =>
       sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID,
@@ -371,6 +357,18 @@ async function updateContractField(contractNo, field, value) {
     log("INFO", "تعديل رقم عقد", { oldNo: contractNo, newNo: value });
     return { success: true };
   }
+
+  const fieldMap = {
+    "clientName":    "B3",
+    "clientPhone":   "B4",
+    "clientAddress": "B5",
+    "civilId":       "B6",
+    "contractType":  "B7",
+    "contractValue": "B8",
+    "contractDate":  "B9",
+  };
+  const cell = fieldMap[field];
+  if (!cell) return { error: "حقل غير معروف" };
 
   await sheetsRetry(() =>
     sheets.spreadsheets.values.update({
