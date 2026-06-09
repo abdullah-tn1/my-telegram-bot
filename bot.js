@@ -332,9 +332,45 @@ async function updateContractField(contractNo, field, value) {
     "civilId":       "B6",
     "contractType":  "B7",
     "contractValue": "B8",
+    "contractDate":  "B2",
   };
   const cell = fieldMap[field];
   if (!cell) return { error: "حقل غير معروف" };
+
+  // تعديل رقم العقد: يتطلب إعادة تسمية الورقة
+  if (field === "contractNo") {
+    const meta = await sheetsRetry(() =>
+      sheets.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID })
+    );
+    const sheet = meta.data.sheets.find(s => s.properties.title === sheetName);
+    if (!sheet) return { error: `العقد رقم ${contractNo} غير موجود` };
+    // تحقق أن رقم العقد الجديد غير مستخدم
+    const newSheetName = `عقد-${value}`;
+    const exists = meta.data.sheets.find(s => s.properties.title === newSheetName);
+    if (exists) return { error: `رقم العقد ${value} مستخدم بالفعل` };
+    await sheetsRetry(() =>
+      sheets.spreadsheets.batchUpdate({
+        spreadsheetId: SPREADSHEET_ID,
+        requestBody: {
+          requests: [{ updateSheetProperties: {
+            properties: { sheetId: sheet.properties.sheetId, title: newSheetName },
+            fields: "title",
+          }}],
+        },
+      })
+    );
+    // تحديث خلية رقم العقد داخل الورقة (A1 أو B1)
+    await sheetsRetry(() =>
+      sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${newSheetName}!B1`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[value]] },
+      })
+    );
+    log("INFO", "تعديل رقم عقد", { oldNo: contractNo, newNo: value });
+    return { success: true };
+  }
 
   await sheetsRetry(() =>
     sheets.spreadsheets.values.update({
@@ -1053,7 +1089,7 @@ bot.on("message", async (msg) => {
       bot.sendMessage(chatId,
         `✏️ *تعديل العقد ${text}*\n\nاختر الحقل:\n` +
         `1️⃣ اسم العميل\n2️⃣ رقم الهاتف\n3️⃣ العنوان\n4️⃣ الرقم المدني\n` +
-        `5️⃣ نوع العقد\n6️⃣ قيمة العقد\n\nأرسل الرقم:`,
+        `5️⃣ نوع العقد\n6️⃣ قيمة العقد\n7️⃣ تاريخ العقد\n8️⃣ رقم العقد\n\nأرسل الرقم:`,
         { parse_mode: "Markdown" }
       );
     } catch (e) {
@@ -1071,9 +1107,11 @@ bot.on("message", async (msg) => {
       "3": ["clientAddress", "العنوان الجديد:"],
       "4": ["civilId",       "الرقم المدني الجديد:"],
       "5": ["contractType",  `نوع العقد:\n1️⃣ سيراميك\n2️⃣ ديكور\n3️⃣ تصميم داخلي\n4️⃣ مقاولات عامة\n\nأرسل الرقم:`],
-      "6": ["contractValue", "قيمة العقد الجديدة:"],
+      "6": ["contractValue", "قيمة العقد الجديدة (بالدينار الكويتي):"],
+      "7": ["contractDate",  "تاريخ العقد الجديد (مثال: 09/06/2026):"],
+      "8": ["contractNo",    "رقم العقد الجديد (مثال: 002):"],
     };
-    if (!fieldMap[text]) { bot.sendMessage(chatId, "⚠️ أرسل رقماً من 1 إلى 6:"); return; }
+    if (!fieldMap[text]) { bot.sendMessage(chatId, "⚠️ أرسل رقماً من 1 إلى 8:"); return; }
     session.data.field = fieldMap[text][0];
     session.step = "edit_value";
     if (text === "5") session.step = "edit_type";
