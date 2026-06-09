@@ -28,14 +28,22 @@ if (!TELEGRAM_TOKEN) throw new Error("❌ TELEGRAM_TOKEN غير موجود في 
 if (!SPREADSHEET_ID) throw new Error("❌ SPREADSHEET_ID غير موجود في .env");
 if (!YOUR_CHAT_ID)   throw new Error("❌ YOUR_CHAT_ID غير موجود في .env");
 
-// ─── Google Credentials: Railway env var → temp file ─────────
-const CREDENTIALS_PATH = process.env.GOOGLE_CREDENTIALS
-  ? (() => {
-      const tmpPath = path.join("/tmp", "credentials.json");
-      fs.writeFileSync(tmpPath, process.env.GOOGLE_CREDENTIALS, "utf8");
-      return tmpPath;
-    })()
-  : path.join(__dirname, "credentials.json"); // fallback for local dev
+// ─── Google Credentials: Railway env var → direct object ──────
+// On Railway: set GOOGLE_CREDENTIALS to the full JSON content of credentials.json
+// Locally:    uses credentials.json file as fallback
+let googleAuthConfig;
+if (process.env.GOOGLE_CREDENTIALS) {
+  try {
+    const creds = JSON.parse(process.env.GOOGLE_CREDENTIALS);
+    googleAuthConfig = { credentials: creds };
+    console.log("✅ Google credentials loaded from environment variable");
+  } catch (e) {
+    throw new Error("❌ GOOGLE_CREDENTIALS env var is not valid JSON: " + e.message);
+  }
+} else {
+  googleAuthConfig = { keyFile: path.join(__dirname, "credentials.json") };
+  console.log("✅ Google credentials loaded from credentials.json file");
+}
 
 // ─── منع تشغيل أكثر من نسخة (PID Lock) ──────────────────────
 if (fs.existsSync(PID_FILE)) {
@@ -62,7 +70,7 @@ function log(level, msg, data = {}) {
 
 // ─── صلاحيات Google Sheets ───────────────────────────────────
 const auth = new google.auth.GoogleAuth({
-  keyFile: CREDENTIALS_PATH,
+  ...googleAuthConfig,
   scopes: ["https://www.googleapis.com/auth/spreadsheets"],
 });
 const sheets = google.sheets({ version: "v4", auth });
