@@ -718,6 +718,61 @@ async function getFullReport() {
   };
 }
 
+// ─── حفظ صورة العقد (file_id) في الشيت ──────────────────────
+async function saveContractPhoto(contractNo, fileId) {
+  const sheetName = `عقد-${contractNo}`;
+  if (!(await sheetExists(sheetName))) return { error: `العقد رقم ${contractNo} غير موجود` };
+
+  const metaRes = await sheetsRetry(() =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${sheetName}!A1:B15`,
+    })
+  );
+  const rows = metaRes.data.values || [];
+  const colA = rows.map(r => r[0] || "");
+  const existingIdx = colA.findIndex(l => l.includes("صورة العقد"));
+
+  if (existingIdx !== -1) {
+    await sheetsRetry(() =>
+      sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${sheetName}!B${existingIdx + 1}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [[fileId]] },
+      })
+    );
+  } else {
+    const emptyIdx = colA.findIndex((l, i) => i >= 5 && l === "");
+    const insertRow = emptyIdx !== -1 ? emptyIdx + 1 : colA.length + 1;
+    await sheetsRetry(() =>
+      sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${sheetName}!A${insertRow}:B${insertRow}`,
+        valueInputOption: "USER_ENTERED",
+        requestBody: { values: [["صورة العقد", fileId]] },
+      })
+    );
+  }
+  log("INFO", "حفظ صورة عقد", { contractNo });
+  return { success: true };
+}
+
+// ─── جلب file_id صورة العقد من الشيت ────────────────────────
+async function getContractPhoto(contractNo) {
+  const sheetName = `عقد-${contractNo}`;
+  if (!(await sheetExists(sheetName))) return null;
+  const res = await sheetsRetry(() =>
+    sheets.spreadsheets.values.get({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${sheetName}!A1:B15`,
+    })
+  );
+  const rows = res.data.values || [];
+  const row = rows.find(r => (r[0] || "").includes("صورة العقد"));
+  return row?.[1] || null;
+}
+
 // ─────────────────────────────────────────────────────────────
 //  معالجة الرسائل
 // ─────────────────────────────────────────────────────────────
@@ -765,6 +820,8 @@ bot.on("message", async (msg) => {
       `✏️ /edit — تعديل بيانات عقد\n` +
       `🗑 /delete — حذف عقد\n` +
       `🖼️ /pdf — فاتورة صورة (PNG عالية الجودة)\n` +
+      `📎 /attach — إرفاق صورة وثيقة العقد\n` +
+      `🖼️ /photo — عرض صورة وثيقة العقد\n` +
       `📊 /stats — إحصائيات المناطق والأنواع\n` +
       `📈 /report — تقرير مالي شامل\n` +
       `❌ /cancel — إلغاء العملية الحالية\n`,
@@ -800,6 +857,20 @@ bot.on("message", async (msg) => {
   if (text === "/pdf") {
     sessions[chatId] = { step: "pdf", data: {} };
     bot.sendMessage(chatId, "🖼️ أرسل رقم العقد لإنشاء صورة الفاتورة:");
+    return;
+  }
+
+  // ── /attach ───────────────────────────────────────────────
+  if (text === "/attach") {
+    sessions[chatId] = { step: "attach_contract", data: {} };
+    bot.sendMessage(chatId, "📎 *إرفاق صورة وثيقة العقد*\n\nأرسل رقم العقد:", { parse_mode: "Markdown" });
+    return;
+  }
+
+  // ── /photo ────────────────────────────────────────────────
+  if (text === "/photo") {
+    sessions[chatId] = { step: "photo_view", data: {} };
+    bot.sendMessage(chatId, "🖼️ أرسل رقم العقد لعرض صورة وثيقته:");
     return;
   }
 
@@ -1095,6 +1166,39 @@ bot.on("message", async (msg) => {
     return;
   }
 
+  // ── /photo — عرض صورة الوثيقة ────────────────────────────
+  if (session.step === "photo_view") {
+    try {
+      const fileId = await getContractPhoto(text);
+      delete sessions[chatId];
+      if (!fileId) {
+        bot.sendMessage(chatId, `⚠️ لا توجد صورة وثيقة مرفوعة للعقد رقم ${text}`);
+        return;
+      }
+      await bot.sendPhoto(chatId, fileId, { caption: `📎 وثيقة العقد رقم ${text}` });
+    } catch (e) {
+      delete sessions[chatId];
+      log("ERROR", "فشل عرض صورة العقد", { error: e.message });
+      bot.sendMessage(chatId, `⚠️ خطأ: ${e.message}`);
+    }
+    return;
+  }
+
+  // ── /attach — الخطوة 1: رقم العقد ───────────────────────
+  if (session.step === "attach_contract") {
+    try {
+      const info = await getContractInfo(text);
+      if (!info) { bot.sendMessage(chatId, `⚠️ العقد رقم ${text} غير موجود`); delete sessions[chatId]; return; }
+      session.data.contractNo = text;
+      session.step = "attach_photo";
+      bot.sendMessage(chatId, `📎 *العقد رقم ${text}*\n\nأرسل الآن صورة وثيقة العقد (صورة من الكاميرا أو ملف صورة):`, { parse_mode: "Markdown" });
+    } catch (e) {
+      delete sessions[chatId];
+      bot.sendMessage(chatId, `⚠️ خطأ: ${e.message}`);
+    }
+    return;
+  }
+
   // ── تعديل العقد — الخطوة 1 ────────────────────────────────
   if (session.step === "edit_start") {
     try {
@@ -1182,6 +1286,39 @@ bot.on("message", async (msg) => {
       bot.sendMessage(chatId, `⚠️ خطأ: ${e.message}`);
     }
     return;
+  }
+});
+
+// ─── معالج استقبال الصور (لأمر /attach) ──────────────────────
+bot.on("photo", async (msg) => {
+  const chatId = String(msg.chat.id);
+  if (chatId !== String(YOUR_CHAT_ID)) return;
+
+  const session = sessions[chatId];
+  if (!session || session.step !== "attach_photo") {
+    bot.sendMessage(chatId, "⚠️ أرسل /attach أولاً لتحديد رقم العقد قبل إرسال الصورة.");
+    return;
+  }
+
+  try {
+    // أخذ أعلى دقة متاحة
+    const photos = msg.photo;
+    const bestPhoto = photos[photos.length - 1];
+    const fileId = bestPhoto.file_id;
+    const { contractNo } = session.data;
+    delete sessions[chatId];
+
+    bot.sendMessage(chatId, "⏳ جاري حفظ الصورة...");
+    const result = await saveContractPhoto(contractNo, fileId);
+    if (result.error) {
+      bot.sendMessage(chatId, `⚠️ ${result.error}`);
+      return;
+    }
+    bot.sendMessage(chatId, `✅ تم حفظ صورة وثيقة العقد رقم *${contractNo}* بنجاح!\n\nاستخدم /photo لعرضها في أي وقت.`, { parse_mode: "Markdown" });
+  } catch (e) {
+    delete sessions[chatId];
+    log("ERROR", "فشل حفظ صورة العقد", { error: e.message });
+    bot.sendMessage(chatId, `⚠️ خطأ في حفظ الصورة: ${e.message}`);
   }
 });
 
