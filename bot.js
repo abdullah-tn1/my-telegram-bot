@@ -232,7 +232,7 @@ async function createContractSheet(d, dateTime) {
     sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
       range: `${sheetName}!A1`,
-      valueInputOption: "USER_ENTERED",
+      valueInputOption: "RAW",
       requestBody: { values: headers },
     })
   );
@@ -266,7 +266,7 @@ async function getContractInfo(contractNo) {
     const row = rows.find(r => (r[0] || "").includes(label));
     return row?.[1] || "";
   };
-  const contractNo2   = rows[1]?.[1]  || contractNo;
+  const contractNo2   = rows[1]?.[1]?.toString()  || contractNo;
   const clientName    = findVal("اسم العميل");
   const clientPhone   = findVal("رقم الهاتف");
   const clientAddress = findVal("عنوان العميل");
@@ -386,7 +386,7 @@ async function updateContractField(contractNo, field, value) {
       sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID,
         range: `${newSheetName}!B2`,
-        valueInputOption: "USER_ENTERED",
+        valueInputOption: "RAW",
         requestBody: { values: [[value]] },
       })
     );
