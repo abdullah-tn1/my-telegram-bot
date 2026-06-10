@@ -1519,6 +1519,125 @@ bot.on("photo", async (msg) => {
   bot.sendMessage(chatId, "⚠️ أرسل /attach لإرفاق صورة عقد، أو /scan للمسح الذكي.");
 });
 
+// ─── معالج استقبال المستندات PDF (لأوامر /attach و /scan) ────
+bot.on("document", async (msg) => {
+  const chatId = String(msg.chat.id);
+  if (chatId !== String(YOUR_CHAT_ID)) return;
+
+  const session = sessions[chatId];
+  if (!session) {
+    bot.sendMessage(chatId, "⚠️ أرسل /attach لإرفاق ملف PDF، أو /scan للمسح الذكي.");
+    return;
+  }
+
+  const doc      = msg.document;
+  const mimeType = doc.mime_type || "";
+  const fileId   = doc.file_id;
+
+  // التحقق أن الملف PDF أو صورة
+  const allowed = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+  if (!allowed.includes(mimeType)) {
+    bot.sendMessage(chatId, "⚠️ الملفات المدعومة: PDF، JPG، PNG فقط.");
+    return;
+  }
+
+  // ── إرفاق ملف العقد (/attach) ─────────────────────────────
+  if (session.step === "attach_photo") {
+    const { contractNo } = session.data;
+    delete sessions[chatId];
+    try {
+      bot.sendMessage(chatId, "⏳ جاري حفظ الملف...");
+      const result = await saveContractPhoto(contractNo, fileId);
+      if (result.error) { bot.sendMessage(chatId, `⚠️ ${result.error}`); return; }
+      bot.sendMessage(chatId,
+        `✅ تم حفظ ملف وثيقة العقد رقم *${contractNo}* بنجاح!\n\nاستخدم /photo لاسترجاعه في أي وقت.`,
+        { parse_mode: "Markdown" }
+      );
+    } catch (e) {
+      log("ERROR", "فشل حفظ ملف العقد", { error: e.message });
+      bot.sendMessage(chatId, `⚠️ خطأ في حفظ الملف: ${e.message}`);
+    }
+    return;
+  }
+
+  // ── المسح الذكي بالذكاء الاصطناعي (/scan) ────────────────
+  if (session.step === "scan_photo") {
+    delete sessions[chatId];
+    try {
+      if (!geminiClient) throw new Error("GEMINI_API_KEY غير مضبوط");
+
+      bot.sendMessage(chatId, "🤖 جاري تحليل الملف بالذكاء الاصطناعي... قد يستغرق بضع ثوان.");
+
+      // تحميل الملف من Telegram
+      const fileInfo = await bot.getFile(fileId);
+      const fileUrl  = `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${fileInfo.file_path}`;
+
+      const https = require("https");
+      const fileBuffer = await new Promise((resolve, reject) => {
+        https.get(fileUrl, (res) => {
+          const chunks = [];
+          res.on("data", c => chunks.push(c));
+          res.on("end",  () => resolve(Buffer.concat(chunks)));
+          res.on("error", reject);
+        });
+      });
+
+      const base64File = fileBuffer.toString("base64");
+      const fileMime   = mimeType === "application/pdf" ? "application/pdf" : mimeType;
+
+      const prompt = `أنت مساعد متخصص في قراءة وثائق عقود البناء والتشطيب العربية.
+استخرج البيانات التالية من هذا المستند وأعدها بصيغة JSON فقط بدون أي نص إضافي:
+
+{
+  "contractNo": "رقم العقد (نص كما هو بدون تعديل)",
+  "clientName": "اسم العميل الكامل",
+  "clientPhone": "رقم الهاتف (أرقام فقط)",
+  "clientAddress": "عنوان العميل أو الموقع",
+  "civilId": "الرقم المدني",
+  "contractType": "نوع العقد (سيراميك / ديكور / تصميم داخلي / مقاولات عامة)",
+  "contractValue": "قيمة العقد بالأرقام فقط بدون عملة",
+  "contractDate": "تاريخ العقد"
+}
+
+إذا لم تجد حقلاً معيناً، ضع قيمة فارغة "".
+أعد JSON فقط بدون أي شرح.`;
+
+      const result = await geminiClient.generateContent([
+        prompt,
+        { inlineData: { data: base64File, mimeType: fileMime } },
+      ]);
+
+      const rawText  = result.response.text().trim();
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("لم يتمكن الذكاء الاصطناعي من استخراج البيانات");
+
+      const data = JSON.parse(jsonMatch[0]);
+
+      let preview = `🤖 *البيانات المستخرجة من الملف:*\n\n`;
+      preview += `📋 رقم العقد: *${data.contractNo || "—"}*\n`;
+      preview += `👤 اسم العميل: ${data.clientName || "—"}\n`;
+      preview += `📞 رقم الهاتف: ${data.clientPhone || "—"}\n`;
+      preview += `📍 العنوان: ${data.clientAddress || "—"}\n`;
+      preview += `🪪 الرقم المدني: ${data.civilId || "—"}\n`;
+      preview += `🏗 نوع العقد: ${data.contractType || "—"}\n`;
+      preview += `💵 القيمة: ${data.contractValue ? fmt(parseFloat(data.contractValue)) : "—"}\n`;
+      preview += `📅 التاريخ: ${data.contractDate || "—"}\n\n`;
+      preview += `هل البيانات صحيحة؟\n✅ اكتب *تأكيد* للتسجيل\n❌ اكتب *إلغاء* للتراجع`;
+
+      data.contractValue = parseFloat(data.contractValue) || 0;
+      sessions[chatId] = { step: "scan_confirm", data: { scanned: data } };
+
+      bot.sendMessage(chatId, preview, { parse_mode: "Markdown" });
+    } catch (e) {
+      log("ERROR", "فشل مسح PDF", { error: e.message });
+      bot.sendMessage(chatId, `⚠️ خطأ في تحليل الملف: ${e.message}`);
+    }
+    return;
+  }
+
+  bot.sendMessage(chatId, "⚠️ أرسل /attach لإرفاق ملف، أو /scan للمسح الذكي.");
+});
+
 // ─── حماية شاملة من الأعطال ───────────────────────────────────
 process.on("uncaughtException",  err => log("ERROR", "خطأ غير متوقع", { error: err.message, stack: err.stack }));
 process.on("unhandledRejection", err => log("ERROR", "رفض غير معالج",  { error: err?.message || String(err) }));
