@@ -171,6 +171,37 @@ async function getAllContractSheets() {
     .filter(t => t.startsWith("عقد-"));
 }
 
+// ─── البحث عن عقود برقم الهاتف ───────────────────────────────
+async function findContractsByPhone(phone) {
+  const sheetNames = await getAllContractSheets();
+  const results = [];
+
+  await Promise.all(sheetNames.map(async (sheetName) => {
+    try {
+      const res = await sheetsRetry(() =>
+        sheets.spreadsheets.values.get({
+          spreadsheetId: SPREADSHEET_ID,
+          range: `${sheetName}!A1:B15`,
+        })
+      );
+      const rows = res.data.values || [];
+      const phoneRow = rows.find(r => (r[0] || "").includes("رقم الهاتف"));
+      const storedPhone = (phoneRow?.[1] || "").toString().replace(/\s/g, "");
+      const queryPhone  = phone.replace(/\s/g, "");
+
+      if (storedPhone.includes(queryPhone) || queryPhone.includes(storedPhone)) {
+        const contractNo   = rows.find(r => (r[0] || "").includes("رقم العقد"))?.[1]  || sheetName.replace("عقد-", "");
+        const clientName   = rows.find(r => (r[0] || "").includes("اسم العميل"))?.[1] || "";
+        const contractType = rows.find(r => (r[0] || "").includes("نوع العقد"))?.[1]  || "";
+        const contractValue = parseFloat(rows.find(r => (r[0] || "").includes("قيمة العقد"))?.[1]) || 0;
+        results.push({ contractNo, clientName, storedPhone: phoneRow?.[1] || "", contractType, contractValue });
+      }
+    } catch {}
+  }));
+
+  return results;
+}
+
 // ─── إنشاء عقد جديد ──────────────────────────────────────────
 async function createContractSheet(d, dateTime) {
   const sheetName = `عقد-${d.contractNo}`;
@@ -816,6 +847,7 @@ bot.on("message", async (msg) => {
       `📋 /new — عقد جديد\n` +
       `💰 /pay — تسجيل دفعة\n` +
       `🔍 /query — استعلام عن عقد\n` +
+      `📱 /findphone — البحث عن عقد برقم الهاتف\n` +
       `📋 /list — قائمة جميع العقود\n` +
       `✏️ /edit — تعديل بيانات عقد\n` +
       `🗑 /delete — حذف عقد\n` +
@@ -857,6 +889,13 @@ bot.on("message", async (msg) => {
   if (text === "/pdf") {
     sessions[chatId] = { step: "pdf", data: {} };
     bot.sendMessage(chatId, "🖼️ أرسل رقم العقد لإنشاء صورة الفاتورة:");
+    return;
+  }
+
+  // ── /findphone ────────────────────────────────────────────
+  if (text === "/findphone") {
+    sessions[chatId] = { step: "findphone", data: {} };
+    bot.sendMessage(chatId, "📱 أرسل رقم هاتف العميل للبحث عن عقوده:");
     return;
   }
 
@@ -1162,6 +1201,34 @@ bot.on("message", async (msg) => {
       delete sessions[chatId];
       log("ERROR", "فشل إنشاء فاتورة", { error: e.message });
       bot.sendMessage(chatId, `⚠️ خطأ في إنشاء الفاتورة: ${e.message}`);
+    }
+    return;
+  }
+
+  // ── /findphone — البحث برقم الهاتف ───────────────────────
+  if (session.step === "findphone") {
+    delete sessions[chatId];
+    bot.sendMessage(chatId, "⏳ جاري البحث في جميع العقود...");
+    try {
+      const results = await findContractsByPhone(text);
+      if (results.length === 0) {
+        bot.sendMessage(chatId, `⚠️ لم يتم العثور على أي عقد مرتبط بالرقم: ${text}`);
+        return;
+      }
+      let msg = `📱 *نتائج البحث عن: ${text}*\n\n`;
+      msg += `✅ وُجد *${results.length}* عقد:\n\n`;
+      results.forEach((r, i) => {
+        msg += `${i + 1}. 📋 رقم العقد: *${r.contractNo}*\n`;
+        msg += `   👤 العميل: ${r.clientName}\n`;
+        msg += `   📞 الهاتف: ${r.storedPhone}\n`;
+        if (r.contractType) msg += `   🏗 النوع: ${r.contractType}\n`;
+        if (r.contractValue) msg += `   💵 القيمة: ${fmt(r.contractValue)}\n`;
+        msg += `\n`;
+      });
+      await sendLong(chatId, msg, { parse_mode: "Markdown" });
+    } catch (e) {
+      log("ERROR", "فشل البحث برقم الهاتف", { error: e.message });
+      bot.sendMessage(chatId, `⚠️ خطأ في البحث: ${e.message}`);
     }
     return;
   }
