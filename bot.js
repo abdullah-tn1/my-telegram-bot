@@ -12,6 +12,7 @@ const { google }  = require("googleapis");
 const fs          = require("fs");
 const path        = require("path");
 const puppeteer   = require("puppeteer");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 // ─── الإعدادات ── تُقرأ من .env ──────────────────────────────
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
@@ -22,6 +23,12 @@ const LOGO_PATH      = path.join(__dirname, "logo.png");
 const LOG_FILE       = path.join(__dirname, "bot.log");
 const PID_FILE       = path.join(__dirname, "bot.pid");
 const COUNTER_FILE   = path.join(__dirname, "invoice_counter.txt");
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+// ─── Gemini AI client ─────────────────────────────────────────
+const geminiClient = GEMINI_API_KEY
+  ? new GoogleGenerativeAI(GEMINI_API_KEY).getGenerativeModel({ model: "gemini-1.5-flash" })
+  : null;
 
 // التحقق من المتغيرات الإلزامية
 if (!TELEGRAM_TOKEN) throw new Error("❌ TELEGRAM_TOKEN غير موجود في .env");
@@ -749,6 +756,58 @@ async function getFullReport() {
   };
 }
 
+// ─── استخراج بيانات العقد من صورة عبر Gemini AI ─────────────
+async function scanContractImage(fileId) {
+  if (!geminiClient) throw new Error("GEMINI_API_KEY غير مضبوط في متغيرات البيئة");
+
+  // تحميل الصورة من Telegram
+  const fileInfo = await bot.getFile(fileId);
+  const fileUrl  = `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${fileInfo.file_path}`;
+
+  const https = require("https");
+  const imageBuffer = await new Promise((resolve, reject) => {
+    https.get(fileUrl, (res) => {
+      const chunks = [];
+      res.on("data", c => chunks.push(c));
+      res.on("end",  () => resolve(Buffer.concat(chunks)));
+      res.on("error", reject);
+    });
+  });
+
+  const base64Image = imageBuffer.toString("base64");
+  const mimeType    = "image/jpeg";
+
+  const prompt = `أنت مساعد متخصص في قراءة وثائق عقود البناء والتشطيب العربية.
+استخرج البيانات التالية من هذه الصورة وأعدها بصيغة JSON فقط بدون أي نص إضافي:
+
+{
+  "contractNo": "رقم العقد (نص كما هو بدون تعديل)",
+  "clientName": "اسم العميل الكامل",
+  "clientPhone": "رقم الهاتف (أرقام فقط)",
+  "clientAddress": "عنوان العميل أو الموقع",
+  "civilId": "الرقم المدني",
+  "contractType": "نوع العقد (سيراميك / ديكور / تصميم داخلي / مقاولات عامة)",
+  "contractValue": "قيمة العقد بالأرقام فقط بدون عملة",
+  "contractDate": "تاريخ العقد"
+}
+
+إذا لم تجد حقلاً معيناً في الصورة، ضع قيمة فارغة "".
+أعد JSON فقط بدون أي شرح.`;
+
+  const result = await geminiClient.generateContent([
+    prompt,
+    { inlineData: { data: base64Image, mimeType } },
+  ]);
+
+  const rawText = result.response.text().trim();
+
+  // تنظيف الرد واستخراج JSON
+  const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error("لم يتمكن الذكاء الاصطناعي من استخراج البيانات من الصورة");
+
+  return JSON.parse(jsonMatch[0]);
+}
+
 // ─── حفظ صورة العقد (file_id) في الشيت ──────────────────────
 async function saveContractPhoto(contractNo, fileId) {
   const sheetName = `عقد-${contractNo}`;
@@ -852,6 +911,7 @@ bot.on("message", async (msg) => {
       `✏️ /edit — تعديل بيانات عقد\n` +
       `🗑 /delete — حذف عقد\n` +
       `🖼️ /pdf — فاتورة صورة (PNG عالية الجودة)\n` +
+      `🤖 /scan — مسح ذكي للعقد واستخراج بياناته آلياً\n` +
       `📎 /attach — إرفاق صورة وثيقة العقد\n` +
       `🖼️ /photo — عرض صورة وثيقة العقد\n` +
       `📊 /stats — إحصائيات المناطق والأنواع\n` +
@@ -889,6 +949,17 @@ bot.on("message", async (msg) => {
   if (text === "/pdf") {
     sessions[chatId] = { step: "pdf", data: {} };
     bot.sendMessage(chatId, "🖼️ أرسل رقم العقد لإنشاء صورة الفاتورة:");
+    return;
+  }
+
+  // ── /scan ─────────────────────────────────────────────────
+  if (text === "/scan") {
+    if (!geminiClient) {
+      bot.sendMessage(chatId, "⚠️ ميزة المسح الذكي غير مفعّلة. يرجى إضافة GEMINI_API_KEY في متغيرات البيئة.");
+      return;
+    }
+    sessions[chatId] = { step: "scan_photo", data: {} };
+    bot.sendMessage(chatId, "🤖 *المسح الذكي للعقود*\n\nأرسل صورة وثيقة العقد وسيقوم الذكاء الاصطناعي باستخراج بياناتها تلقائياً.", { parse_mode: "Markdown" });
     return;
   }
 
@@ -1205,6 +1276,33 @@ bot.on("message", async (msg) => {
     return;
   }
 
+  // ── /scan — تأكيد التسجيل بعد الاستخراج الذكي ───────────
+  if (session.step === "scan_confirm") {
+    if (text === "تأكيد" || text === "نعم") {
+      const d = session.data.scanned;
+      delete sessions[chatId];
+      bot.sendMessage(chatId, "⏳ جاري تسجيل العقد...");
+      try {
+        const dateTime = d.contractDate || nowKuwait();
+        const result = await createContractSheet(d, dateTime);
+        if (result.error) { bot.sendMessage(chatId, `⚠️ ${result.error}`); return; }
+        bot.sendMessage(chatId,
+          `✅ *تم تسجيل العقد بنجاح*\n\n` +
+          `📋 رقم العقد: ${d.contractNo}\n👤 العميل: ${d.clientName}\n` +
+          `📞 الهاتف: ${d.clientPhone}\n📍 العنوان: ${d.clientAddress}\n` +
+          `🏗 النوع: ${d.contractType}\n💵 القيمة: ${fmt(d.contractValue)}`,
+          { parse_mode: "Markdown" }
+        );
+      } catch (e) {
+        bot.sendMessage(chatId, `⚠️ خطأ في التسجيل: ${e.message}`);
+      }
+    } else {
+      delete sessions[chatId];
+      bot.sendMessage(chatId, "❌ تم إلغاء التسجيل. يمكنك استخدام /new لإدخال البيانات يدوياً.");
+    }
+    return;
+  }
+
   // ── /findphone — البحث برقم الهاتف ───────────────────────
   if (session.step === "findphone") {
     delete sessions[chatId];
@@ -1362,31 +1460,63 @@ bot.on("photo", async (msg) => {
   if (chatId !== String(YOUR_CHAT_ID)) return;
 
   const session = sessions[chatId];
-  if (!session || session.step !== "attach_photo") {
-    bot.sendMessage(chatId, "⚠️ أرسل /attach أولاً لتحديد رقم العقد قبل إرسال الصورة.");
+  if (!session) {
+    bot.sendMessage(chatId, "⚠️ أرسل /attach لإرفاق صورة عقد، أو /scan للمسح الذكي.");
     return;
   }
 
-  try {
-    // أخذ أعلى دقة متاحة
-    const photos = msg.photo;
-    const bestPhoto = photos[photos.length - 1];
-    const fileId = bestPhoto.file_id;
+  const photos    = msg.photo;
+  const bestPhoto = photos[photos.length - 1];
+  const fileId    = bestPhoto.file_id;
+
+  // ── إرفاق صورة العقد (/attach) ───────────────────────────
+  if (session.step === "attach_photo") {
     const { contractNo } = session.data;
     delete sessions[chatId];
-
-    bot.sendMessage(chatId, "⏳ جاري حفظ الصورة...");
-    const result = await saveContractPhoto(contractNo, fileId);
-    if (result.error) {
-      bot.sendMessage(chatId, `⚠️ ${result.error}`);
-      return;
+    try {
+      bot.sendMessage(chatId, "⏳ جاري حفظ الصورة...");
+      const result = await saveContractPhoto(contractNo, fileId);
+      if (result.error) { bot.sendMessage(chatId, `⚠️ ${result.error}`); return; }
+      bot.sendMessage(chatId, `✅ تم حفظ صورة وثيقة العقد رقم *${contractNo}* بنجاح!\n\nاستخدم /photo لعرضها في أي وقت.`, { parse_mode: "Markdown" });
+    } catch (e) {
+      log("ERROR", "فشل حفظ صورة العقد", { error: e.message });
+      bot.sendMessage(chatId, `⚠️ خطأ في حفظ الصورة: ${e.message}`);
     }
-    bot.sendMessage(chatId, `✅ تم حفظ صورة وثيقة العقد رقم *${contractNo}* بنجاح!\n\nاستخدم /photo لعرضها في أي وقت.`, { parse_mode: "Markdown" });
-  } catch (e) {
-    delete sessions[chatId];
-    log("ERROR", "فشل حفظ صورة العقد", { error: e.message });
-    bot.sendMessage(chatId, `⚠️ خطأ في حفظ الصورة: ${e.message}`);
+    return;
   }
+
+  // ── المسح الذكي بالذكاء الاصطناعي (/scan) ────────────────
+  if (session.step === "scan_photo") {
+    delete sessions[chatId];
+    try {
+      bot.sendMessage(chatId, "🤖 جاري تحليل الصورة بالذكاء الاصطناعي... قد يستغرق بضع ثوان.");
+      const data = await scanContractImage(fileId);
+
+      // عرض البيانات المستخرجة للمراجعة
+      let preview = `🤖 *البيانات المستخرجة من الصورة:*\n\n`;
+      preview += `📋 رقم العقد: *${data.contractNo || "—"}*\n`;
+      preview += `👤 اسم العميل: ${data.clientName || "—"}\n`;
+      preview += `📞 رقم الهاتف: ${data.clientPhone || "—"}\n`;
+      preview += `📍 العنوان: ${data.clientAddress || "—"}\n`;
+      preview += `🪪 الرقم المدني: ${data.civilId || "—"}\n`;
+      preview += `🏗 نوع العقد: ${data.contractType || "—"}\n`;
+      preview += `💵 القيمة: ${data.contractValue ? fmt(parseFloat(data.contractValue)) : "—"}\n`;
+      preview += `📅 التاريخ: ${data.contractDate || "—"}\n\n`;
+      preview += `هل البيانات صحيحة؟\n✅ اكتب *تأكيد* للتسجيل\n❌ اكتب *إلغاء* للتراجع`;
+
+      // تحضير البيانات للتسجيل
+      data.contractValue = parseFloat(data.contractValue) || 0;
+      sessions[chatId] = { step: "scan_confirm", data: { scanned: data } };
+
+      bot.sendMessage(chatId, preview, { parse_mode: "Markdown" });
+    } catch (e) {
+      log("ERROR", "فشل المسح الذكي", { error: e.message });
+      bot.sendMessage(chatId, `⚠️ خطأ في تحليل الصورة: ${e.message}\n\nتأكد من وضوح الصورة أو استخدم /new لإدخال البيانات يدوياً.`);
+    }
+    return;
+  }
+
+  bot.sendMessage(chatId, "⚠️ أرسل /attach لإرفاق صورة عقد، أو /scan للمسح الذكي.");
 });
 
 // ─── حماية شاملة من الأعطال ───────────────────────────────────
