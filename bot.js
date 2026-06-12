@@ -27,44 +27,57 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
 // ─── Gemini AI — استدعاء مباشر بدون SDK ─────────────────────
 // يدعم كلا النوعين: API key (AIza...) أو OAuth token (AQ...)
+async function listAvailableGeminiModels(apiKey, isOAuth) {
+  try {
+    const url = isOAuth
+      ? "https://generativelanguage.googleapis.com/v1/models"
+      : `https://generativelanguage.googleapis.com/v1/models?key=${apiKey}`;
+    const headers = { "Content-Type": "application/json" };
+    if (isOAuth) headers["Authorization"] = `Bearer ${apiKey}`;
+    const res = await fetch(url, { headers });
+    const json = await res.json();
+    if (!res.ok) return [];
+    // أعد الموديلات التي تدعم generateContent
+    return (json.models || [])
+      .filter(m => (m.supportedGenerationMethods || []).includes("generateContent"))
+      .map(m => m.name.replace("models/", ""));
+  } catch { return []; }
+}
+
 async function callGeminiREST(base64Data, mimeType, prompt) {
   const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
   if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY غير مضبوط في متغيرات البيئة");
 
-  const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro-vision"];
   const isOAuthToken = GEMINI_API_KEY.startsWith("AQ.") || GEMINI_API_KEY.startsWith("ya29.");
+
+  // اكتشاف الموديلات المتاحة أولاً
+  let models = await listAvailableGeminiModels(GEMINI_API_KEY, isOAuthToken);
+  if (!models.length) {
+    // قائمة احتياطية
+    models = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-pro-vision", "gemini-pro"];
+  }
+  log("INFO", "موديلات Gemini المتاحة", { models: models.slice(0, 5) });
+
+  const body = JSON.stringify({
+    contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64Data } }] }]
+  });
+  const headers = { "Content-Type": "application/json" };
+  if (isOAuthToken) headers["Authorization"] = `Bearer ${GEMINI_API_KEY}`;
 
   for (const model of models) {
     const url = isOAuthToken
       ? `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent`
       : `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
-
-    const body = JSON.stringify({
-      contents: [{
-        parts: [
-          { text: prompt },
-          { inline_data: { mime_type: mimeType, data: base64Data } }
-        ]
-      }]
-    });
-
-    const headers = { "Content-Type": "application/json" };
-    if (isOAuthToken) headers["Authorization"] = `Bearer ${GEMINI_API_KEY}`;
-
     try {
       const res = await fetch(url, { method: "POST", headers, body });
       const json = await res.json();
-      if (!res.ok) {
-        log("WARN", `Gemini model ${model} failed: ${json?.error?.message}`);
-        continue; // جرّب الموديل التالي
-      }
+      if (!res.ok) { log("WARN", `Gemini ${model} → ${json?.error?.message}`); continue; }
       const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      log("INFO", `Gemini نجح مع موديل: ${model}`);
       return text;
-    } catch (e) {
-      log("WARN", `Gemini model ${model} error: ${e.message}`);
-    }
+    } catch (e) { log("WARN", `Gemini ${model} خطأ: ${e.message}`); }
   }
-  throw new Error("فشلت جميع موديلات Gemini. تأكد من صحة المفتاح وتفعيل Gemini API.");
+  throw new Error(`فشلت جميع الموديلات. الموديلات المتاحة: ${models.slice(0,3).join(", ") || "لا يوجد"}`);
 }
 
 // التحقق من المتغيرات الإلزامية
