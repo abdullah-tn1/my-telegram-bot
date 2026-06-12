@@ -12,7 +12,7 @@ const { google }  = require("googleapis");
 const fs          = require("fs");
 const path        = require("path");
 const puppeteer   = require("puppeteer");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const https       = require("https");
 
 // ─── الإعدادات ── تُقرأ من .env ──────────────────────────────
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
@@ -25,13 +25,47 @@ const PID_FILE       = path.join(__dirname, "bot.pid");
 const COUNTER_FILE   = path.join(__dirname, "invoice_counter.txt");
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-// ─── Gemini AI client ─────────────────────────────────────────
-const geminiClient = GEMINI_API_KEY
-  ? new GoogleGenerativeAI(GEMINI_API_KEY).getGenerativeModel(
-      { model: "gemini-1.5-flash" },
-      { apiVersion: "v1" }
-    )
-  : null;
+// ─── Gemini AI — استدعاء مباشر بدون SDK ─────────────────────
+// يدعم كلا النوعين: API key (AIza...) أو OAuth token (AQ...)
+async function callGeminiREST(base64Data, mimeType, prompt) {
+  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+  if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY غير مضبوط في متغيرات البيئة");
+
+  const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro-vision"];
+  const isOAuthToken = GEMINI_API_KEY.startsWith("AQ.") || GEMINI_API_KEY.startsWith("ya29.");
+
+  for (const model of models) {
+    const url = isOAuthToken
+      ? `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent`
+      : `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${GEMINI_API_KEY}`;
+
+    const body = JSON.stringify({
+      contents: [{
+        parts: [
+          { text: prompt },
+          { inline_data: { mime_type: mimeType, data: base64Data } }
+        ]
+      }]
+    });
+
+    const headers = { "Content-Type": "application/json" };
+    if (isOAuthToken) headers["Authorization"] = `Bearer ${GEMINI_API_KEY}`;
+
+    try {
+      const res = await fetch(url, { method: "POST", headers, body });
+      const json = await res.json();
+      if (!res.ok) {
+        log("WARN", `Gemini model ${model} failed: ${json?.error?.message}`);
+        continue; // جرّب الموديل التالي
+      }
+      const text = json?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+      return text;
+    } catch (e) {
+      log("WARN", `Gemini model ${model} error: ${e.message}`);
+    }
+  }
+  throw new Error("فشلت جميع موديلات Gemini. تأكد من صحة المفتاح وتفعيل Gemini API.");
+}
 
 // التحقق من المتغيرات الإلزامية
 if (!TELEGRAM_TOKEN) throw new Error("❌ TELEGRAM_TOKEN غير موجود في .env");
@@ -761,13 +795,12 @@ async function getFullReport() {
 
 // ─── استخراج بيانات العقد من صورة عبر Gemini AI ─────────────
 async function scanContractImage(fileId) {
-  if (!geminiClient) throw new Error("GEMINI_API_KEY غير مضبوط في متغيرات البيئة");
+  if (!process.env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY غير مضبوط في متغيرات البيئة");
 
   // تحميل الصورة من Telegram
   const fileInfo = await bot.getFile(fileId);
   const fileUrl  = `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${fileInfo.file_path}`;
 
-  const https = require("https");
   const imageBuffer = await new Promise((resolve, reject) => {
     https.get(fileUrl, (res) => {
       const chunks = [];
@@ -797,12 +830,7 @@ async function scanContractImage(fileId) {
 إذا لم تجد حقلاً معيناً في الصورة، ضع قيمة فارغة "".
 أعد JSON فقط بدون أي شرح.`;
 
-  const result = await geminiClient.generateContent([
-    prompt,
-    { inlineData: { data: base64Image, mimeType } },
-  ]);
-
-  const rawText = result.response.text().trim();
+  const rawText = await callGeminiREST(base64Image, mimeType, prompt);
 
   // تنظيف الرد واستخراج JSON
   const jsonMatch = rawText.match(/\{[\s\S]*\}/);
@@ -957,7 +985,7 @@ bot.on("message", async (msg) => {
 
   // ── /scan ─────────────────────────────────────────────────
   if (text === "/scan") {
-    if (!geminiClient) {
+    if (!process.env.GEMINI_API_KEY) {
       bot.sendMessage(chatId, "⚠️ ميزة المسح الذكي غير مفعّلة. يرجى إضافة GEMINI_API_KEY في متغيرات البيئة.");
       return;
     }
@@ -1567,7 +1595,7 @@ bot.on("document", async (msg) => {
   if (session.step === "scan_photo") {
     delete sessions[chatId];
     try {
-      if (!geminiClient) throw new Error("GEMINI_API_KEY غير مضبوط");
+      if (!process.env.GEMINI_API_KEY) throw new Error("GEMINI_API_KEY غير مضبوط");
 
       bot.sendMessage(chatId, "🤖 جاري تحليل الملف بالذكاء الاصطناعي... قد يستغرق بضع ثوان.");
 
@@ -1575,7 +1603,6 @@ bot.on("document", async (msg) => {
       const fileInfo = await bot.getFile(fileId);
       const fileUrl  = `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${fileInfo.file_path}`;
 
-      const https = require("https");
       const fileBuffer = await new Promise((resolve, reject) => {
         https.get(fileUrl, (res) => {
           const chunks = [];
@@ -1605,12 +1632,7 @@ bot.on("document", async (msg) => {
 إذا لم تجد حقلاً معيناً، ضع قيمة فارغة "".
 أعد JSON فقط بدون أي شرح.`;
 
-      const result = await geminiClient.generateContent([
-        prompt,
-        { inlineData: { data: base64File, mimeType: fileMime } },
-      ]);
-
-      const rawText  = result.response.text().trim();
+      const rawText  = await callGeminiREST(base64File, fileMime, prompt);
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error("لم يتمكن الذكاء الاصطناعي من استخراج البيانات");
 
