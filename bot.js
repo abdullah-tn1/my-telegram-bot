@@ -48,7 +48,7 @@ async function callGeminiREST(base64Data, mimeType, prompt) {
   const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
   if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY غير مضبوط في متغيرات البيئة");
 
-  const isOAuthToken = GEMINI_API_KEY.startsWith("AQ.") || GEMINI_API_KEY.startsWith("ya29.");
+  const isOAuthToken = GEMINI_API_KEY.startsWith("ya29.");
 
   // اكتشاف الموديلات المتاحة أولاً
   let models = await listAvailableGeminiModels(GEMINI_API_KEY, isOAuthToken);
