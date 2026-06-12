@@ -59,7 +59,7 @@ async function callGeminiREST(base64Data, mimeType, prompt) {
   log("INFO", "موديلات Gemini المتاحة", { models: models.slice(0, 5) });
 
   const body = JSON.stringify({
-    contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: mimeType, data: base64Data } }] }]
+    contents: [{ parts: [{ text: prompt }, { inlineData: { mimeType: mimeType, data: base64Data } }] }]
   });
   const headers = { "Content-Type": "application/json" };
   if (isOAuthToken) headers["Authorization"] = `Bearer ${GEMINI_API_KEY}`;
